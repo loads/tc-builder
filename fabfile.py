@@ -79,6 +79,7 @@ def provision(region="us-west-2"):
 
     user_data = _make_cloud_init()
 
+    print "Provisioning..."
     # Create our instance, and save the instance id
     res = conn.run_instances(
         AMI,
@@ -88,25 +89,29 @@ def provision(region="us-west-2"):
     )
     inst = res.instances[0]
 
-    print "Provisioning..."
+    print "Allocated, waiting for running state..."
     while inst.update() != 'running':
         time.sleep(5)
     inst.add_tag("Name", "tc-builder")
-    print "Provisioned. Checking for SSH availability..."
+    print "Running. Checking for SSH availability..."
 
     retry = True
     count = 0
     while retry and count < 500:
         try:
-            with settings(hide('everything'), user="ubuntu",
+            with settings(hide('everything'),
+                          user="ubuntu",
                           host_string=inst.ip_address,
                           warn_only=True):
-                sudo("docker version")
-            retry = False
+                result = run("which -a docker")
+                if result == "/usr/bin/docker":
+                    retry = False
         except:
+            pass
+        finally:
             count += 1
             time.sleep(5)
-    if count >= 5:
+    if count >= 500:
         abort("Unable to ssh in.")
     print "Fully available."
 
