@@ -1,3 +1,4 @@
+from functools import (partial)
 import os
 import time
 
@@ -35,6 +36,9 @@ runcmd:
 AMI = "ami-5b58266b"
 
 
+remote_settings = partial(settings, user="ubuntu", warn_only=True)
+
+
 """Determine if an instance is a running tc-builder"""
 def _running_tc_builder(instance):
     tc_inst = instance.tags.get("Name") == "tc-builder"
@@ -57,6 +61,16 @@ def _make_cloud_init():
 def _locate_running_tc_builder(conn):
     instances = conn.get_only_instances()
     return filter(_running_tc_builder, instances)
+
+
+"""Verify a running instance"""
+def _verify_running_tc_builder(conn):
+    instances = conn.get_only_instances()
+    inst = filter(_running_tc_builder, instances)
+    if not inst:
+        abort("Failure to find a tc-builder instance running.")
+
+    return inst[0]
 
 
 """Provisions a Ubuntu 14.04 AWS instance for container building."""
@@ -100,7 +114,6 @@ def provision(region="us-west-2"):
     while retry and count < 500:
         try:
             with settings(hide('everything'),
-                          user="ubuntu",
                           host_string=inst.ip_address,
                           warn_only=True):
                 result = run("which -a docker")
@@ -126,3 +139,20 @@ def unprovision(region="us-west-2"):
         abort("No tc-builder instance running.")
 
     tc_instances[0].terminate()
+
+
+"""Checks out a repo on a remote host and updates it to a specific
+   commit
+
+   This runs on a remote host that is assumed to have been configured
+   and running by ``provision``.
+
+"""
+def checkout(repo, commit, region="us-west-2"):
+    conn = boto.ec2.connect_to_region(region)
+
+    # Ensure we have pulled the latest travis-run on the remote host
+    inst = _verify_running_tc_builder(conn)
+
+    with remote_settings(host_string=inst.ip_address):
+        
